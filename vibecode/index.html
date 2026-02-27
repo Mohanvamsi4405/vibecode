@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VibeCode — AI Web Builder</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=9" />
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+</head>
+
+<body>
+    <div id="app">
+
+        <!-- ── Top Bar ─────────────────────────────────────────────────── -->
+        <header id="topbar">
+            <div class="topbar-left">
+                <button class="topbar-icon mobile-only" id="btn-sidebar-toggle" title="Toggle Files">
+                    <i data-lucide="panel-left"></i>
+                </button>
+                <div class="brand">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                        <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" fill="#8b5cf6" stroke="#8b5cf6" stroke-width="1.5"
+                            stroke-linejoin="round" />
+                    </svg>
+                    <span class="brand-name">VibeCode</span>
+                </div>
+                <div class="topbar-sep hide-mobile"></div>
+                <span class="project-crumb hide-mobile" id="active-crumb">no file open</span>
+            </div>
+
+            <div class="topbar-center">
+                <div class="view-tabs">
+                    <button class="view-tab active" id="btn-mode-code" data-mode="code">
+                        <i data-lucide="code-2"></i><span class="tab-label"> Code</span>
+                    </button>
+                    <button class="view-tab" id="btn-mode-split" data-mode="split">
+                        <i data-lucide="columns-2"></i><span class="tab-label"> Split</span>
+                    </button>
+                    <button class="view-tab" id="btn-mode-preview" data-mode="preview">
+                        <i data-lucide="eye"></i><span class="tab-label"> Preview</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="topbar-right">
+                <button class="topbar-btn" id="btn-toggle-chat">
+                    <i data-lucide="sparkles"></i><span class="btn-label"> AI Chat</span>
+                </button>
+                <button class="topbar-btn" id="btn-open-terminal">
+                    <i data-lucide="terminal"></i><span class="btn-label"> Terminal</span>
+                </button>
+                <button class="topbar-btn accent" id="btn-run">
+                    <i data-lucide="play"></i><span class="btn-label"> Run</span>
+                </button>
+                <button class="topbar-btn" id="btn-github-publish" title="Publish project to GitHub"
+                    style="background: #24292e; color: white; border: none;">
+                    <i data-lucide="github"></i><span class="btn-label"> GitHub</span>
+                </button>
+                <button class="topbar-icon hide-mobile" id="btn-open-popup" title="Open in new tab">
+                    <i data-lucide="external-link"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- ── Workspace ──────────────────────────────────────────────────── -->
+        <div id="workspace">
+
+            <!-- File Tree Sidebar -->
+            <aside id="sidebar-panel">
+                <div class="sidebar-head">
+                    <span class="sidebar-label">Files</span>
+                    <div class="sidebar-actions">
+                        <button class="icon-btn" id="btn-refresh-files" title="Refresh Files">
+                            <i data-lucide="refresh-cw"></i>
+                        </button>
+                        <button class="icon-btn" id="btn-new-file" title="New File">
+                            <i data-lucide="file-plus"></i>
+                        </button>
+                        <button class="icon-btn" id="btn-new-folder" title="New Folder">
+                            <i data-lucide="folder-plus"></i>
+                        </button>
+                        <button class="icon-btn" id="btn-delete-item" title="Delete">
+                            <i data-lucide="trash-2"></i>
+                        </button>
+                    </div>
+                </div>
+                <div id="file-tree"></div>
+            </aside>
+
+            <div id="resizer-sidebar" class="resizer v-resizer"></div>
+
+            <!-- Code Editor -->
+            <div id="editor-area">
+                <!-- Open file tabs -->
+                <div id="tabs-bar">
+                    <div id="tabs-container"></div>
+                </div>
+
+                <!-- Editor + line numbers -->
+                <div class="editor-container">
+                    <div id="line-numbers" class="line-numbers">1</div>
+                    <textarea id="code-editor" spellcheck="false" autocorrect="off" autocapitalize="off"
+                        placeholder="Open a file to start editing..."></textarea>
+                </div>
+
+                <!-- Terminal resize handle -->
+                <div id="terminal-resizer" class="resizer h-resizer" style="display:none"></div>
+
+                <!-- Integrated Terminal / AI Chat Panel -->
+                <div id="terminal-panel" style="display:none" data-mode="output">
+                    <div class="terminal-head">
+                        <div class="terminal-head-left">
+                            <span class="terminal-label">VibeCode</span>
+                            <div class="term-tabs">
+                                <button class="term-tab active" data-mode="output">Output</button>
+                                <button class="term-tab" data-mode="shell">Shell</button>
+                                <button class="term-tab" data-mode="aichat">
+                                    <i data-lucide="sparkles" style="width:11px;height:11px;"></i> AI Chat
+                                </button>
+                                <button class="term-tab" data-mode="split"
+                                    title="Split view: Shell + AI Chat side by side">
+                                    <i data-lucide="columns-2" style="width:11px;height:11px;"></i> Split
+                                </button>
+                            </div>
+                            <span id="terminal-badge" class="terminal-badge"></span>
+                        </div>
+                        <div class="terminal-head-right">
+                            <!-- Terminal-only controls -->
+                            <div id="term-only-controls" style="display:flex;align-items:center;gap:3px;">
+                                <div class="pip-group" id="pip-group" style="display:none">
+                                    <input id="pip-input" type="text" class="pip-input" placeholder="package name" />
+                                    <button class="icon-btn" id="btn-pip-install" title="pip install">
+                                        <i data-lucide="download"></i>
+                                    </button>
+                                </div>
+                                <button class="icon-btn" id="btn-pip-toggle" title="Install Python package">
+                                    <i data-lucide="package-plus"></i>
+                                </button>
+                                <button class="icon-btn term-kill-btn" id="btn-term-kill" title="Kill process"
+                                    style="display:none">
+                                    <i data-lucide="square"></i>
+                                </button>
+                                <button class="icon-btn" id="btn-clear-terminal" title="Clear terminal">
+                                    <i data-lucide="eraser"></i>
+                                </button>
+                            </div>
+                            <!-- Chat-only controls -->
+                            <div id="chat-only-controls" style="display:none;align-items:center;gap:3px;">
+                                <button class="icon-btn" id="btn-clear-chat" title="Clear chat">
+                                    <i data-lucide="eraser"></i>
+                                </button>
+                            </div>
+                            <button class="icon-btn" id="btn-close-terminal" title="Close panel">
+                                <i data-lucide="x"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Body: switches between column and row layout via CSS data-mode -->
+                    <div class="terminal-body">
+
+                        <!-- Shell / Output pane -->
+                        <div class="terminal-pane" id="terminal-pane-shell">
+                            <div class="terminal-pane-label">Shell</div>
+                            <div id="terminal-output" class="terminal-output"></div>
+                            <input id="terminal-hidden-input" class="terminal-hidden-input" autocomplete="off"
+                                spellcheck="false" tabindex="-1" />
+                        </div>
+
+                        <!-- Drag handle between Shell and Chat panes (split mode only) -->
+                        <div id="split-pane-resizer" class="resizer v-resizer" title="Drag to resize"></div>
+
+                        <!-- AI Chat View (AI Chat mode) -->
+                        <div id="term-chat-view">
+                            <div class="term-chat-controls">
+                                <div class="ai-pulse"></div>
+                                <select id="model-select" class="model-select" title="Select AI model">
+                                    <option value="llama-3.3-70b-versatile">Llama 3.3 70B ⭐</option>
+                                </select>
+                                <select id="project-select" class="project-select" title="Select active project">
+                                    <option value="">— All Projects —</option>
+                                    <option value="__new__">➕ New Project…</option>
+                                </select>
+                                <div class="file-ctx-picker" id="file-ctx-picker">
+                                    <button class="file-ctx-trigger" id="btn-file-ctx-trigger"
+                                        title="Filter chat context: all files / folder / single file">
+                                        <i data-lucide="file-code-2"></i>
+                                        <span id="chat-ctx-label">All files</span>
+                                        <i data-lucide="chevron-down" class="ctx-chevron"></i>
+                                    </button>
+                                    <div class="file-ctx-dropdown" id="file-ctx-dropdown">
+                                        <input type="text" id="ctx-search" class="ctx-search"
+                                            placeholder="Search files…" autocomplete="off" spellcheck="false">
+                                        <div class="ctx-list" id="ctx-list"></div>
+                                    </div>
+                                </div>
+                                <button id="btn-agent-mode"
+                                    title="Enable Agent Mode — Orchestrator + Specialist Agents + Reviewer">
+                                    🤖 Agents
+                                </button>
+                            </div>
+                            <div id="chat-messages" class="chat-messages">
+                                <div class="msg ai">
+                                    <span class="msg-icon">⚡</span>
+                                    <div class="msg-body">
+                                        I build complete end-to-end projects — web frontends, Python backends, and
+                                        full-stack apps with FastAPI + HTML/CSS/JS.
+                                        Describe what you want and I'll plan and generate the full code with setup
+                                        instructions.
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="chat-input-area">
+                                <textarea id="chat-input"
+                                    placeholder="Build a todo app with FastAPI backend, or a landing page, or a Python script…"
+                                    rows="1"></textarea>
+                                <button id="btn-stop-chat" class="btn-stop" style="display:none"
+                                    title="Stop generation">
+                                    <i data-lucide="square"></i>
+                                </button>
+                                <button id="btn-send-chat">
+                                    <i data-lucide="arrow-up"></i>
+                                </button>
+                            </div>
+                            <div class="chat-hint">Enter · Shift+Enter new line · Esc to stop</div>
+                        </div>
+
+                    </div><!-- /.terminal-body -->
+                </div>
+
+                <!-- Editor footer -->
+                <div id="editor-footer">
+                    <span id="cursor-pos">Ln 1, Col 1</span>
+                    <span id="file-lang">—</span>
+                </div>
+            </div>
+
+            <div id="resizer-aux" class="resizer v-resizer"></div>
+
+            <!-- Preview Panel -->
+            <aside id="aux-panel">
+                <div class="preview-head">
+                    <div class="device-controls">
+                        <button class="icon-btn active" data-device="desktop" title="Desktop">
+                            <i data-lucide="monitor"></i>
+                        </button>
+                        <button class="icon-btn" data-device="tablet" title="Tablet">
+                            <i data-lucide="tablet"></i>
+                        </button>
+                        <button class="icon-btn" data-device="mobile" title="Mobile">
+                            <i data-lucide="smartphone"></i>
+                        </button>
+                    </div>
+                    <div id="preview-url-bar" class="preview-url-bar">No preview</div>
+                    <button class="icon-btn" id="btn-refresh-preview" title="Reload">
+                        <i data-lucide="rotate-cw"></i>
+                    </button>
+                </div>
+
+                <div class="canvas-bg">
+                    <div class="device-wrapper desktop" id="preview-wrapper">
+                        <iframe id="preview-frame" sandbox="allow-scripts allow-modals allow-forms allow-same-origin">
+                        </iframe>
+                    </div>
+                </div>
+            </aside>
+        </div>
+
+        <!-- ── Status Bar ─────────────────────────────────────────────── -->
+        <footer id="status-bar">
+            <div class="status-left">
+                <span class="status-brand">⚡ VibeCode</span>
+                <span class="status-dot"></span>
+                <span id="status-file-count" class="status-item">0 files</span>
+            </div>
+            <div class="status-right">
+                <span class="status-item" id="cursor-pos-bar">Ln 1, Col 1</span>
+                <span class="status-item">UTF-8</span>
+            </div>
+        </footer>
+
+    </div>
+
+    <!-- Sidebar overlay backdrop (mobile) -->
+    <div id="sidebar-backdrop"></div>
+
+    <!-- Autocomplete dropdown -->
+    <div id="autocomplete-dropdown" class="autocomplete-dropdown"></div>
+
+    <!-- Context menu (dynamically filled) -->
+    <div id="context-menu"></div>
+
+    <!-- GitHub Publish Modal -->
+    <div id="github-modal" class="modal"
+        style="display:none; position:fixed; z-index:9999; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.8); align-items:center; justify-content:center;">
+        <div class="modal-content"
+            style="background:#18181b; padding:24px; border-radius:12px; width:400px; border:1px solid #27272a; color:white;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h3 style="margin:0; display:flex; align-items:center; gap:8px;"><i data-lucide="github"></i> Publish to
+                    GitHub</h3>
+                <button id="close-github-modal" style="background:none; border:none; color:#a1a1aa; cursor:pointer;"><i
+                        data-lucide="x"></i></button>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:16px;">
+                <div>
+                    <label style="display:block; font-size:12px; color:#a1a1aa; margin-bottom:6px;">Target
+                        Project</label>
+                    <select id="gh-project-select"
+                        style="width:100%; background:#09090b; border:1px solid #27272a; color:white; padding:8px; border-radius:6px; outline:none;"></select>
+                </div>
+                <div>
+                    <label style="display:block; font-size:12px; color:#a1a1aa; margin-bottom:6px;">GitHub Repository
+                        Name</label>
+                    <input type="text" id="gh-repo-name"
+                        style="width:100%; background:#09090b; border:1px solid #27272a; color:white; padding:8px; border-radius:6px; outline:none;"
+                        placeholder="my-awesome-project">
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <input type="checkbox" id="gh-is-private">
+                    <label for="gh-is-private" style="font-size:13px;">Private Repository</label>
+                </div>
+                <hr style="border:0; border-top:1px solid #27272a; margin:8px 0;">
+                <div>
+                    <label style="display:block; font-size:12px; color:#a1a1aa; margin-bottom:6px;">GitHub Username (if
+                        not in .env)</label>
+                    <input type="text" id="gh-user"
+                        style="width:100%; background:#09090b; border:1px solid #27272a; color:white; padding:8px; border-radius:6px; outline:none;"
+                        placeholder="username">
+                </div>
+                <div>
+                    <label style="display:block; font-size:12px; color:#a1a1aa; margin-bottom:6px;">Personal Access
+                        Token (if not in .env)</label>
+                    <input type="password" id="gh-token"
+                        style="width:100%; background:#09090b; border:1px solid #27272a; color:white; padding:8px; border-radius:6px; outline:none;"
+                        placeholder="ghp_xxxxxxxxxxxx">
+                    <p style="font-size:10px; color:#71717a; margin-top:4px;">Requires <b>'repo'</b> scope (Classic) or
+                        <b>'Contents: Write'</b> (Fine-grained).
+                    </p>
+                </div>
+                <button id="btn-do-publish"
+                    style="background:#8b5cf6; color:white; border:none; padding:10px; border-radius:6px; font-weight:600; cursor:pointer; margin-top:10px;">
+                    Publish to GitHub
+                </button>
+                <div id="github-status" style="font-size:12px; text-align:center; min-height:18px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js?v=9"></script>
+</body>
+
+</html>
