@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  vibecode:
+    build: .
+    ports:
+      - "8000:8001"
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GITHUB_USER=${GITHUB_USER}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+    volumes:
+      - ./vibecode_projects:/app/vibecode_projects
+      - ./.vc_history:/app/.vc_history
+    restart: always

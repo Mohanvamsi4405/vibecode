@@ -320,6 +320,13 @@ const UI = {
             return;
         }
         Store.state.activeFile = path;
+
+        // Auto-expand parent folders
+        const parts = path.split('/');
+        for (let i = 1; i < parts.length; i++) {
+            const folderPath = parts.slice(0, i).join('/');
+            Store.state.expandedFolders[folderPath] = true;
+        }
         Store.save();
 
         const content = Store.state.files[path] || '';
@@ -790,7 +797,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Terminal buttons
         if (t.closest('#btn-close-terminal')) { closeTerminal(); return; }
         if (t.closest('#btn-clear-terminal')) { clearTerminal(); return; }
-        if (t.closest('#btn-term-kill')) { killTermProcess(); return; }
+        if (t.closest('#btn-kill-port')) {
+            _termAppend('\n[Killing port 8000…]\n', 'info');
+            fetch('/api/kill-port', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ port: 8000 }) })
+                .then(r => r.json())
+                .then(d => {
+                    if (d.still_running) {
+                        _termAppend('[Port 8000 still active — try again]\n', 'err');
+                    } else {
+                        _setPortRunning(false);
+                        _termAppend('[Port 8000 killed]\n', 'info');
+                    }
+                })
+                .catch(() => { _termAppend('[Kill request failed]\n', 'err'); });
+            return;
+        }
         if (t.closest('#btn-pip-toggle')) {
             const grp = document.getElementById('pip-group');
             if (grp) {
@@ -1027,9 +1048,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 _histIdx = Math.max(_histIdx - 1, -1);
                 _termInput = _histIdx >= 0 ? (_termHistory[_histIdx] || '') : '';
                 _updateActiveLine();
-            } else if (e.key === 'c' && e.ctrlKey) {
-                e.preventDefault();
-                killTermProcess();
             } else if (e.key === 'l' && e.ctrlKey) {
                 e.preventDefault();
                 clearTerminal();
@@ -1326,11 +1344,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         input.value = '';
         input.style.height = '';
 
-        // ── "New Project" mode OR no project selected + it's a build request ──
-        const needsProject = Store.state.activeProject === '__new__' ||
-            (!Store.state.activeProject && (isProjectRequest(msg) || _agentModeEnabled));
+        // ── New Project OR build request in active project ────────────────────
+        const isBuild = isProjectRequest(msg);
+        const isCreation = isCreationRequest(msg);
+
+        // HARD BLOCK: Never switch projects if it's clearly a command (run, start, stop, install)
+        const isCommand = /^\s*(run|start|stop|kill|restart|install|pip|npm|python|uvicorn|node|docker|test|debug)\b/i.test(msg);
+
+        const needsProject = !isCommand && (
+            Store.state.activeProject === '__new__' ||
+            !Store.state.activeProject
+        );
+
         if (needsProject) {
-            const name = extractProjectName(msg);
+            let name = extractProjectName(msg);
+            // If extraction results in a generic/verb name, fallback to active project if possible
+            if (['run', 'test', 'debug', 'build', 'start'].includes(name) && Store.state.activeProject && Store.state.activeProject !== '__new__') {
+                name = Store.state.activeProject;
+            }
             Store.state.activeProject = name;
             Store.save();
 
@@ -1408,6 +1439,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (lo.includes(kw)) return kw;
         }
 
+        // 0. Hard exit for commands at start of msg
+        if (/^\s*(run|start|stop|kill|restart|install|pip|npm|python|uvicorn|debug|fix|test)\b/i.test(msg)) {
+            return Store.state.activeProject && Store.state.activeProject !== '__new__' ? Store.state.activeProject : 'new-project';
+        }
+
+        // 1.5 Stop words/verbs that should NOT be project names
+        const STOP_VERBS = new Set(['run', 'start', 'stop', 'kill', 'restart', 'install', 'build', 'create', 'make', 'develop', 'design', 'debug', 'fix', 'test', 'help', 'app', 'tool', 'system', 'site', 'project']);
+
         // 2. Pattern: "create/build a(n) [WORD] app/application/system/tool/platform"
         const createMatch = lo.match(
             /(?:create|build|make|develop|design)\s+(?:a\s+|an\s+)?(?:complete\s+|simple\s+|full[- ]stack\s+)?([a-z][a-z0-9]+)\s+(?:web\s+)?(?:app|application|system|tool|platform|service|website|site)/
@@ -1436,7 +1475,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             'a', 'an', 'the', 'my', 'our', 'new', 'modern', 'responsive', 'advanced',
             'full', 'complete', 'and', 'or', 'with', 'using', 'is', 'that', 'this',
             'can', 'will', 'where', 'which', 'items', 'things', 'products', 'users',
-            'you', 'are', 'senior', 'junior', 'expert', 'developer', 'engineer'
+            'you', 'are', 'senior', 'junior', 'expert', 'developer', 'engineer',
+            ...STOP_VERBS
         ]);
 
         const words = s.split(/\s+/).filter(w => w.length > 1 && !stop.has(w));
@@ -1450,6 +1490,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     // ── Detect project-scale requests ─────────────────────────
     function isProjectRequest(msg) {
         const lo = msg.toLowerCase();
+        const term = ['run', 'stop', 'kill', 'restart', 'install', 'pip ', 'npm ', 'python ', 'uvicorn', 'debug', 'fix', 'test'];
+        return isCreationRequest(msg) || term.some(k => lo.includes(k)) || msg.length > 250;
+    }
+
+    // ── Detect explicit creation intent ────────────────────────
+    function isCreationRequest(msg) {
+        const lo = msg.toLowerCase();
         const web = ['website', 'web app', 'ecommerce', 'e-commerce', 'portfolio', 'dashboard',
             'landing page', 'full page', 'blog', 'shop', 'restaurant', 'agency', 'saas',
             'build me', 'create a full', 'complete website', 'fully responsive', 'multi-page',
@@ -1458,12 +1505,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         const py = ['python', 'flask', 'fastapi', 'django', 'pandas', 'numpy', 'matplotlib',
             'machine learning', 'sklearn', 'scraper', 'automation', 'cli tool', '.py file',
             'data analysis', 'bot', 'tkinter', 'pygame', 'rest api server'];
-        const fs = ['full stack', 'full-stack', 'fullstack', 'with backend', 'with database',
-            'with auth', 'with login', 'crud app', 'rest api', 'api server', 'backend',
-            'user accounts', 'store data', 'database', 'sqlite', 'postgres', 'mysql'];
-        const term = ['run', 'stop', 'kill', 'restart', 'install', 'pip ', 'npm ', 'python ', 'uvicorn'];
+        const fs = ['full stack', 'full-stack', 'fullstack', 'complete app', 'end-to-end', 'rest api', 'api server'];
+        const createVerbs = ['create a', 'build a', 'make a', 'generate a', 'setup a', 'develop a', 'design a', 'new project'];
+
         return web.some(k => lo.includes(k)) || py.some(k => lo.includes(k)) ||
-            fs.some(k => lo.includes(k)) || term.some(k => lo.includes(k)) || msg.length > 250;
+            fs.some(k => lo.includes(k)) || createVerbs.some(k => lo.startsWith(k) || lo.includes(' ' + k + ' '));
     }
 
     // ── Detect full-stack (backend + frontend) requests ───────
@@ -2017,13 +2063,40 @@ FRONTEND RULES:
     // Agent metadata (icon, label, description)
     const AGENT_META = {
         orchestrator: { icon: '🧠', label: 'Orchestrator', color: '#a855f7' },
-        fullstack: { icon: '⚡', label: 'FullStack Builder', color: '#7c3aed' },
-        frontend: { icon: '🎨', label: 'Frontend Agent', color: '#22d3ee' },
-        backend: { icon: '⚙️', label: 'Backend Agent', color: '#34d399' },
-        coder: { icon: '💻', label: 'Code Agent', color: '#f59e0b' },
-        terminal: { icon: '🖥️', label: 'Terminal Agent', color: '#fb923c' },
-        reviewer: { icon: '🔍', label: 'Reviewer Agent', color: '#ec4899' },
+        intent: { icon: '🎯', label: 'Intent Classifier', color: '#6366f1' },
+        intent_classification: { icon: '🎯', label: 'Intent Classifier', color: '#6366f1' },
+        chat: { icon: '💬', label: 'Chat', color: '#06b6d4' },
+        planning: { icon: '🗺️', label: 'Planner', color: '#8b5cf6' },
+        coding: { icon: '💻', label: 'Code Generator', color: '#3b82f6' },
+        reasoning: { icon: '💡', label: 'Reasoner', color: '#f59e0b' },
+        reflection: { icon: '🪞', label: 'Reflection', color: '#ec4899' },
+        critic: { icon: '⚖️', label: 'Critic', color: '#ef4444' },
+        code_generation: { icon: '💻', label: 'Code Gen', color: '#3b82f6' },
+        debugging: { icon: '🐛', label: 'Debugger', color: '#f97316' },
+        refactoring: { icon: '♻️', label: 'Refactorer', color: '#10b981' },
+        frontend: { icon: '🎨', label: 'Frontend', color: '#22d3ee' },
+        backend: { icon: '⚙️', label: 'Backend', color: '#34d399' },
+        full_stack: { icon: '⚡', label: 'Full Stack', color: '#7c3aed' },
+        terminal: { icon: '🖥️', label: 'Terminal', color: '#fb923c' },
+        ui_ux: { icon: '✨', label: 'UI/UX', color: '#f472b6' },
+        database: { icon: '🗄️', label: 'Database', color: '#64748b' },
+        security: { icon: '🛡️', label: 'Security', color: '#dc2626' },
+        testing: { icon: '🧪', label: 'Testing', color: '#0ea5e9' },
+        documentation: { icon: '📚', label: 'Docs', color: '#71717a' },
+        deployment: { icon: '🚀', label: 'Deployment', color: '#10b981' },
+        mobile_app: { icon: '📱', label: 'Mobile', color: '#8b5cf6' },
+        devops: { icon: '♾️', label: 'DevOps', color: '#06b6d4' },
+        data_science: { icon: '📊', label: 'Data Science', color: '#f59e0b' },
+        ai_ml: { icon: '🤖', label: 'AI/ML', color: '#8b5cf6' },
+        cloud_infra: { icon: '☁️', label: 'Cloud', color: '#0ea5e9' },
+        refinement: { icon: '💎', label: 'Refinement', color: '#10b981' }
     };
+
+    // ── Helper: Reload everything after agent work ───────────
+    async function _reloadTree() {
+        await Store.load();
+        if (typeof loadProjects === 'function') await loadProjects();
+    }
 
     // ── Create an agent card in the chat ─────────────────────
     // runId makes element IDs unique so multiple pipeline runs don't collide
@@ -2065,14 +2138,27 @@ FRONTEND RULES:
         // Detail area
         const detail = document.getElementById(`ac-detail-${runId}-${agentName}`);
         if (!detail) return;
-        if (agentName === 'orchestrator' && data.plan) {
-            const p = data.plan;
-            const taskList = (p.tasks || []).map(t =>
-                `<span class="ac-task-item">${AGENT_META[t.agent]?.icon || '•'} ${t.agent}</span>`
-            ).join('');
+        if ((agentName === 'orchestrator' || agentName === 'planning' || agentName === 'intent_classification' || agentName === 'intent') && (data.plan || data.output)) {
+            const p = data.plan || data.output;
+            const tasks = p.tasks || p.roadmap || (p.selected_agents || []).map(a => ({ agent: a }));
+            const taskList = tasks.map(t => {
+                const agentId = typeof t === 'string' ? '' : (t.agent || '');
+                const taskText = typeof t === 'string' ? t : (t.task || t.description || t.label || 'Step');
+                const meta = AGENT_META[agentId];
+                const label = meta ? meta.label : (agentId || taskText);
+                const icon = meta ? meta.icon : (agentId ? '🤖' : '•');
+                return `<span class="ac-task-item" title="${_escHtml(taskText)}">${icon} ${label}</span>`;
+            }).join('');
+            // Show planned file list if available (new planner format)
+            const fileItems = (p.files || []).map(f =>
+                `<span class="ac-file">${_escHtml(typeof f === 'string' ? f : f.path)}</span>`).join('');
             detail.innerHTML = `
-                <div class="ac-thinking">${_escHtml(p.thinking || '')}</div>
-                <div class="ac-tasks">${taskList}</div>`;
+                <div class="ac-thinking">${_escHtml(p.thinking || p.summary || p.intent_summary || (p.intent ? 'Intent: ' + p.intent : ''))}</div>
+                ${fileItems ? `<div class="ac-files">${fileItems}</div>` : `<div class="ac-tasks">${taskList}</div>`}`;
+        } else if (agentName === 'reflection' && (data.plan || data.output)) {
+            const p = data.plan || data.output;
+            const issues = (p.found_issues || []).map(i => `<div class="ac-issue">⚠️ ${i}</div>`).join('');
+            detail.innerHTML = `<div class="ac-reflection-status ${p.is_complete ? 'ok' : 'warn'}">${p.is_complete ? '✅ Perfect' : '❌ Issues Found'}</div>${issues}`;
         } else if (data.actions?.length) {
             const files = data.actions
                 .filter(a => a.action !== 'delete_file')
@@ -2159,6 +2245,19 @@ FRONTEND RULES:
             return;
         }
 
+        // If command is a server (uvicorn/python app), kill any process on port 8000 first
+        if (/uvicorn|python\s.*(app|main|run)/.test(cmd)) {
+            try {
+                const port = (cmd.match(/--port\s+(\d+)/) || [])[1] || '8000';
+                await fetch('/api/kill-port', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ port: parseInt(port) })
+                });
+            } catch (_) {}
+            await new Promise(r => setTimeout(r, 400));
+        }
+
         // If cwd is provided, navigate first. Resolve absolute if relative
         let targetCwd = cwd;
         if (cwd && !String(cwd).includes(':') && !String(cwd).startsWith('/') && window._ideConfig?.projects_dir) {
@@ -2203,15 +2302,15 @@ FRONTEND RULES:
         const secStr = ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
         const fileCount = (event.actions || []).filter(a =>
             a.action !== 'delete_file').length;
-        const logLink = event.agent_log_file
-            ? `\n📄 **Log:** \`${event.agent_log_file}\`` : '';
         const quality = event.review?.quality_score
             ? `  •  🔍 Quality **${event.review.quality_score}/100**` : '';
+        const inTok = (t.prompt_tokens || t.input || 0).toLocaleString();
+        const outTok = (t.completion_tokens || t.output || 0).toLocaleString();
         addMsg(
             `✅ **${event.message || 'Build complete'}**\n\n` +
-            `📊 **Tokens:** ${(t.input || 0).toLocaleString()} in / ${(t.output || 0).toLocaleString()} out` +
+            `📊 **Tokens:** ${inTok} in / ${outTok} out` +
             `  •  ⏱️ **${secStr}**  •  📁 **${fileCount} files**` +
-            quality + logLink,
+            quality,
             'ai'
         );
     }
@@ -2305,13 +2404,15 @@ FRONTEND RULES:
 
             case 'agent_done': {
                 _updateAgentCard(agent, 'done', event, runId);
-                // Apply file actions immediately
-                if (event.actions?.length) {
-                    const locked = lockToFolder(event.actions, project);
+                // Apply file actions immediately — note: actions are often nested in 'output'
+                const actions = event.actions || event.output?.actions;
+                if (actions?.length) {
+                    const locked = lockToFolder(actions, project);
                     await applyActions(locked);
                 }
-                if (agent === 'reviewer' && event.fix_actions?.length) {
-                    const locked = lockToFolder(event.fix_actions, project);
+                const fixActions = event.fix_actions || event.output?.fix_actions;
+                if (agent === 'reviewer' && fixActions?.length) {
+                    const locked = lockToFolder(fixActions, project);
                     await applyActions(locked);
                 }
                 break;
@@ -2324,6 +2425,9 @@ FRONTEND RULES:
                 }
                 _showCommandsCard(event.commands, project);
                 _showPipelineSummary(event);
+                if (event.actions && event.actions.length > 0) {
+                    await _reloadTree();
+                }
                 Store.state.chatHistory.push({
                     role: 'assistant',
                     content: event.message || 'Build complete.',
@@ -2333,11 +2437,20 @@ FRONTEND RULES:
                 break;
 
             case 'agent_shell_kill':
-                killTermProcess();
+                _setPortRunning(false);
                 break;
 
             case 'agent_shell_cmd':
                 _runInShell(event.command, event.cwd);
+                break;
+
+            case 'chat_text':
+                // Display chat agent's response as a normal AI message
+                if (event.text) {
+                    addMsg(event.text, 'ai');
+                    Store.state.chatHistory.push({ role: 'assistant', content: event.text, ctx_folder: project });
+                    await saveConversation();
+                }
                 break;
 
             case 'error':
@@ -2397,10 +2510,14 @@ FRONTEND RULES:
         if (out) out.scrollTop = out.scrollHeight;
     }
 
+    // ── Port 8000 indicator ───────────────────────────────────
+    function _setPortRunning(running) {
+        const btn = document.getElementById('btn-kill-port');
+        if (btn) btn.style.display = running ? 'flex' : 'none';
+    }
+
     function _setTermRunning(alive) {
         _termAlive = alive;
-        const killBtn = document.getElementById('btn-term-kill');
-        if (killBtn) killBtn.style.display = alive ? '' : 'none';
         if (alive) {
             _termInput = '';
             _histIdx = -1;
@@ -2424,6 +2541,12 @@ FRONTEND RULES:
         out.appendChild(span);
         if (al && _termAlive) out.appendChild(al);
         out.scrollTop = out.scrollHeight;
+        // Detect server start/stop from terminal output
+        if (text.includes('Uvicorn running on') || text.includes('Application startup complete')) {
+            _setPortRunning(true);
+        } else if (text.includes('Shutdown complete') || text.includes('Application shutdown') || text.includes('[Shell session ended]') || text.includes('Finished server process')) {
+            _setPortRunning(false);
+        }
     }
 
 
@@ -2442,6 +2565,7 @@ FRONTEND RULES:
         if (_termAlive) _updateActiveLine();
     }
 
+    // Kill entire shell session
     function killTermProcess() {
         const ws = _shellWS;
         if (ws && _termAlive) ws.send(JSON.stringify({ type: 'kill' }));
@@ -2529,10 +2653,17 @@ FRONTEND RULES:
             }
         };
         ws.onerror = () => {
-            _termAppend('Connection error\n', 'err');
             _setTermRunning(false);
-            setTermBadge('err', 'Error');
             _shellWS = null;
+            // Silently retry once after 1.5s (handles backend restart timing)
+            if (!ws._retried) {
+                ws._retried = true;
+                setTermBadge('run', 'Reconnecting…');
+                setTimeout(() => openShellTerminal(targetMode), 1500);
+            } else {
+                _termAppend('Connection error — is the server running?\n', 'err');
+                setTermBadge('err', 'Error');
+            }
         };
         ws.onclose = () => {
             if (_termAlive) {
@@ -2640,7 +2771,7 @@ FRONTEND RULES:
     }
 
     // ── Apply actions to disk + UI ────────────────────────────
-    async function applyActions(actions, refreshUI = true) {
+    async function applyActions(actions, refreshUI = true, autoLoad = false) {
         for (const a of actions) {
             if (!a.file) continue;
             if (a.action === 'add_file' || a.action === 'replace_file') {
@@ -2661,11 +2792,13 @@ FRONTEND RULES:
             Store.save();
             UI.renderFileTree();
             UI.renderTabs();
-            const last = actions.at(-1);
-            if (last?.file && last.action !== 'delete_file' && last.file in Store.state.files) {
-                UI.loadFile(last.file);
-            } else if (Store.state.activeFile) {
-                UI.loadFile(Store.state.activeFile);
+            if (autoLoad) {
+                const last = actions.at(-1);
+                if (last?.file && last.action !== 'delete_file' && last.file in Store.state.files) {
+                    UI.loadFile(last.file);
+                } else if (Store.state.activeFile) {
+                    UI.loadFile(Store.state.activeFile);
+                }
             }
             setTimeout(() => UI.reloadPreview(), 300);
         }

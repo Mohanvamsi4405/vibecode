@@ -1707,12 +1707,38 @@ button {
     border: 1px solid rgba(197, 134, 192, 0.35);
 }
 
-.term-kill-btn {
-    color: #f48771 !important;
+/* Port kill pill button */
+.port-kill-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px 2px 5px;
+    border-radius: 10px;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    background: rgba(239, 68, 68, 0.1);
+    color: #f87171;
+    font-size: 11px;
+    font-family: var(--font-mono, monospace);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
 }
-
-.term-kill-btn:hover {
-    background: rgba(244, 135, 113, 0.15) !important;
+.port-kill-btn:hover {
+    background: rgba(239, 68, 68, 0.25);
+    border-color: rgba(239, 68, 68, 0.7);
+    color: #fca5a5;
+}
+.port-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #ef4444;
+    animation: pulse-dot 1.5s infinite;
+    flex-shrink: 0;
+}
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.5; transform: scale(0.75); }
 }
 
 .pip-group {

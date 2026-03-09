@@ -162,6 +162,86 @@ async def agent_chat(request: ChatRequest):
     )
 
 
+# ── Kill process on port ──────────────────────────────────────
+class KillPortRequest(BaseModel):
+    port: int = 8000
+
+@app.post("/api/kill-port")
+async def kill_port(req: KillPortRequest):
+    """Kill entire uvicorn process tree on port using taskkill /T (kills whole tree)."""
+    port = req.port
+    killed_pids = []
+    try:
+        if sys.platform == "win32":
+            # Step 1: find all PIDs listening on port
+            find_script = (
+                f"(Get-NetTCPConnection -LocalPort {port} -ErrorAction SilentlyContinue).OwningProcess | "
+                f"Select-Object -Unique"
+            )
+            r = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", find_script],
+                capture_output=True, text=True, timeout=10
+            )
+            worker_pids = [p.strip() for p in r.stdout.strip().splitlines() if p.strip().isdigit()]
+            log.info(f"kill-port found worker pids={worker_pids}")
+
+            for wpid in worker_pids:
+                # Find parent via CIM
+                cim_r = subprocess.run(
+                    ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+                     f"(Get-CimInstance Win32_Process -Filter 'ProcessId={wpid}' -ErrorAction SilentlyContinue).ParentProcessId"],
+                    capture_output=True, text=True, timeout=5
+                )
+                ppid = cim_r.stdout.strip()
+                # Kill parent tree first (prevents reloader from respawning worker)
+                if ppid.isdigit() and ppid != "0":
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", ppid], capture_output=True)
+                    killed_pids.append(int(ppid))
+                    log.info(f"kill-port taskkill /T parent={ppid}")
+                # Kill worker tree
+                subprocess.run(["taskkill", "/F", "/T", "/PID", wpid], capture_output=True)
+                killed_pids.append(int(wpid))
+                log.info(f"kill-port taskkill /T worker={wpid}")
+        else:
+            subprocess.run(f"fuser -k {port}/tcp", shell=True, capture_output=True)
+            killed_pids = [port]
+    except Exception as e:
+        log.warning(f"kill-port {port}: {e}")
+    log.info(f"kill-port {port}: killed {killed_pids}")
+    # Verify: check if any alive process still holds the port
+    import time as _time
+    _time.sleep(0.5)
+    if sys.platform == "win32":
+        chk = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+             f"$c = Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue; "
+             f"if ($c) {{ $alive = $c | Where-Object {{ Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue }}; $alive.Count -gt 0 }} else {{ $false }}"],
+            capture_output=True, text=True, timeout=5
+        )
+        still_running = chk.stdout.strip().lower() == "true"
+    else:
+        chk = subprocess.run(f"fuser {port}/tcp", shell=True, capture_output=True)
+        still_running = chk.returncode == 0
+    return {"port": port, "killed": killed_pids, "still_running": still_running}
+
+@app.get("/api/check-port")
+async def check_port(port: int = 8000):
+    """Check if a port has a LISTENING process on it."""
+    try:
+        if sys.platform == "win32":
+            r = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+                 f"(Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue).OwningProcess"],
+                capture_output=True, text=True, timeout=5
+            )
+            running = bool(r.stdout.strip())
+        else:
+            r = subprocess.run(f"fuser {port}/tcp", shell=True, capture_output=True)
+            running = r.returncode == 0
+    except Exception:
+        running = False
+    return {"port": port, "running": running}
+
 # ── Execute shell command in project directory ────────────────
 class ExecRequest(BaseModel):
     command: str
@@ -497,7 +577,10 @@ async def ws_run(websocket: WebSocket):
             process.terminate()
             ret = process.wait(timeout=2)
         
-        await websocket.send_json({"type": "exit", "code": ret if ret is not None else 1})
+        try:
+            await websocket.send_json({"type": "exit", "code": ret if ret is not None else 1})
+        except:
+            pass
 
 
     except WebSocketDisconnect:
@@ -581,6 +664,11 @@ async def ws_terminal(websocket: WebSocket):
                     if process.stdin:
                         process.stdin.write((data + "\n").encode("utf-8"))
                         process.stdin.flush()
+                elif msg.get("type") == "ctrl_c":
+                    # Send Ctrl+C to interrupt running server (uvicorn/python) without killing shell
+                    if process.stdin:
+                        process.stdin.write(b"\x03")
+                        process.stdin.flush()
                 elif msg.get("type") == "kill":
                     process.terminate()
                     break
@@ -597,7 +685,10 @@ async def ws_terminal(websocket: WebSocket):
         if ret is None:
             process.terminate()
             ret = process.wait(timeout=2)
-        await websocket.send_json({"type": "exit", "code": ret if ret is not None else 0})
+        try:
+            await websocket.send_json({"type": "exit", "code": ret if ret is not None else 0})
+        except:
+            pass
 
     except WebSocketDisconnect:
         log.debug("WS Shell: client disconnected")
@@ -785,12 +876,14 @@ if VIBECODE_DIR.exists():
     app.mount("/", StaticFiles(directory=str(VIBECODE_DIR)), name="vibecode")
 
 if __name__ == "__main__":
+    # Use PORT from environment for cloud deployment (e.g. Render)
+    port = int(os.environ.get("PORT", 8001))
     log.info("=" * 48)
-    log.info("VibeCode IDE  ->  http://localhost:8001")
+    log.info(f"VibeCode IDE  ->  http://localhost:{port}")
     log.info(f"   Projects  : {PROJECTS_DIR}")
     log.info(f"   History   : {HISTORY_DIR}")
     log.info("=" * 48)
     uvicorn.run(
-        "main:app", host="0.0.0.0", port=8001, reload=False,
+        "main:app", host="0.0.0.0", port=port, reload=False,
         log_level="warning",   # suppress uvicorn's own duplicate access log
     )
