@@ -1,7 +1,14 @@
 fastapi
-uvicorn
+uvicorn[standard]
 groq
 pydantic
 python-dotenv
 aiofiles
 requests
+langgraph
+langchain-core
+typing-extensions
+jinja2
+python-multipart
+jedi
+websockets
