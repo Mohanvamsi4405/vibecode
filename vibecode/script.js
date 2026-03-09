@@ -11,7 +11,9 @@ const Store = {
         activeProject: '',
         activeModel: 'llama-3.3-70b-versatile',
         chatHistory: [],
-        expandedFolders: {}
+        expandedFolders: {},
+        previewMode: 'static',
+        previewPort: 8000
     },
 
     async load() {
@@ -61,7 +63,9 @@ const Store = {
                 activeProject: this.state.activeProject,
                 activeModel: this.state.activeModel,
                 chatHistory: this.state.chatHistory,
-                expandedFolders: this.state.expandedFolders
+                expandedFolders: this.state.expandedFolders,
+                previewMode: this.state.previewMode,
+                previewPort: this.state.previewPort
             }));
         } catch (e) { /* storage full */ }
     },
@@ -130,7 +134,7 @@ const UI = {
             'tabs-container', 'preview-frame', 'chat-messages',
             'chat-input', 'preview-url-bar',
             'cursor-pos', 'cursor-pos-bar', 'file-lang',
-            'status-file-count', 'active-crumb'
+            'status-file-count', 'active-crumb', 'btn-toggle-proxy'
         ];
         ids.forEach(id => { this.els[id] = document.getElementById(id); });
 
@@ -404,10 +408,22 @@ const UI = {
             return;
         }
 
-        const url = `/project/${target}`;
+        const url = Store.state.previewMode === 'proxy'
+            ? `/proxy/${Store.state.previewPort}/`
+            : `/project/${target}`;
+
         if (this.els['preview-url-bar']) this.els['preview-url-bar'].textContent = url;
         frame.removeAttribute('srcdoc');
         if (frame.getAttribute('src') !== url) frame.src = url;
+
+        // Update toggle button appearance
+        const btn = document.getElementById('btn-toggle-proxy');
+        if (btn) {
+            btn.classList.toggle('active', Store.state.previewMode === 'proxy');
+            btn.title = Store.state.previewMode === 'proxy'
+                ? 'Switch to Static Preview'
+                : 'Switch to Server Preview (for FastAPI/Backends)';
+        }
     },
 
     reloadPreview() {
@@ -798,20 +814,33 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (t.closest('#btn-close-terminal')) { closeTerminal(); return; }
         if (t.closest('#btn-clear-terminal')) { clearTerminal(); return; }
         if (t.closest('#btn-kill-port')) {
-            _termAppend('\n[Killing port 8000…]\n', 'info');
-            fetch('/api/kill-port', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ port: 8000 }) })
-                .then(r => r.json())
-                .then(d => {
+            const port = 8000;
+            if (confirm(`Kill server on port ${port}?`)) {
+                _termAppend(`\n[Killing port ${port}…]\n`, 'info');
+                fetch('/api/kill-port', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ port })
+                }).then(r => r.json()).then(d => {
                     if (d.still_running) {
-                        _termAppend('[Port 8000 still active — try again]\n', 'err');
+                        _termAppend(`[Port ${port} still active — try again]\n`, 'err');
                     } else {
                         _setPortRunning(false);
-                        _termAppend('[Port 8000 killed]\n', 'info');
+                        _termAppend(`[Port ${port} killed]\n`, 'info');
                     }
-                })
-                .catch(() => { _termAppend('[Kill request failed]\n', 'err'); });
+                }).catch(() => { _termAppend('[Kill request failed]\n', 'err'); });
+            }
             return;
         }
+
+        // Toggle proxy preview
+        if (t.closest('#btn-toggle-proxy')) {
+            Store.state.previewMode = Store.state.previewMode === 'proxy' ? 'static' : 'proxy';
+            Store.save();
+            UI.updatePreview();
+            return;
+        }
+
         if (t.closest('#btn-pip-toggle')) {
             const grp = document.getElementById('pip-group');
             if (grp) {
@@ -2254,7 +2283,7 @@ FRONTEND RULES:
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ port: parseInt(port) })
                 });
-            } catch (_) {}
+            } catch (_) { }
             await new Promise(r => setTimeout(r, 400));
         }
 

@@ -7,7 +7,7 @@ from groq_service import get_ai_response, MODEL_CONFIGS, DEFAULT_MODEL
 from agent_service import run_agent_pipeline
 from pydantic import BaseModel
 from typing import Optional
-import uvicorn, os, json, shutil, subprocess, sys, asyncio, logging, time, traceback, requests
+import uvicorn, os, json, shutil, subprocess, sys, asyncio, logging, time, traceback, requests, httpx
 from pathlib import Path
 from datetime import datetime
 
@@ -129,6 +129,70 @@ async def chat(request: ChatRequest):
     except Exception as e:
         log.error(f"Chat error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+# ── Proxy Route (for sub-projects on Render) ───────────────
+@app.api_route("/proxy/{port}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+async def proxy_request(port: int, path: str, request: Request):
+    """
+    Proxies requests from the main IDE to a local server running inside the container.
+    This allows viewing sub-projects (e.g. on port 8000) on Render's single-port architecture.
+    """
+    # Block obviously recursive attempts
+    if port == int(os.environ.get("PORT", 8001)):
+        raise HTTPException(400, "Cannot proxy to the IDE itself")
+        
+    target_url = f"http://localhost:{port}/{path}"
+    query = request.url.query
+    if query:
+        target_url += f"?{query}"
+        
+    log.debug(f"Proxying {request.method} {request.url.path} -> {target_url}")
+    
+    async with httpx.AsyncClient() as client:
+        # Prepare headers
+        headers = dict(request.headers)
+        headers.pop("host", None)
+        headers.pop("content-length", None) # httpx recalculates this
+        
+        try:
+            resp = await client.request(
+                method=request.method,
+                url=target_url,
+                content=await request.body(),
+                headers=headers,
+                follow_redirects=True,
+                timeout=30.0
+            )
+            
+            # Extract content-type to handle it specially if needed
+            ct = resp.headers.get("content-type", "application/octet-stream")
+            
+            return StreamingResponse(
+                resp.aiter_bytes(),
+                status_code=resp.status_code,
+                headers=dict(resp.headers),
+                media_type=ct
+            )
+        except Exception as e:
+            msg = f"Proxy error to port {port}: {str(e)}"
+            log.warning(msg)
+            # Return a friendly HTML error page for preview frame
+            err_html = f"""
+            <html><body style="margin:0;padding:2rem;background:#0a0a0f;color:#ef4444;font-family:system-ui,sans-serif;">
+            <div style="border:1px solid #ef4444;padding:1rem;border-radius:8px;background:rgba(239, 68, 68, 0.1);">
+                <h2 style="margin-top:0;">🛑 Preview Proxy Error</h2>
+                <p>Could not connect to the server on port <b>{port}</b>.</p>
+                <p style="color:#a1a1aa;font-size:14px;">Make sure your project server is actually running and listening on 0.0.0.0 or localhost.</p>
+                <pre style="background:#000;padding:1rem;border-radius:4px;overflow:auto;margin-top:1rem;color:#fecaca;">{e}</pre>
+                <button onclick="location.reload()" style="background:#ef4444;color:white;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;margin-top:8px;">Try Again</button>
+            </div>
+            </body></html>
+            """
+            return StreamingResponse(
+                iter([err_html.encode()]),
+                status_code=502,
+                media_type="text/html"
+            )
 
 # ── Multi-Agent Chat (SSE streaming) ─────────────────────────
 @app.post("/api/agent-chat")

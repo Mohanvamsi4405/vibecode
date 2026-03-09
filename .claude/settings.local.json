@@ -6,7 +6,9 @@
       "Bash(python:*)",
       "Bash(pip install:*)",
       "Bash(curl:*)",
-      "Bash(/d/CodewithAi/code_env/Scripts/python.exe:*)"
+      "Bash(/d/CodewithAi/code_env/Scripts/python.exe:*)",
+      "Bash(powershell.exe -NoProfile -NonInteractive -Command \"Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | Select-Object LocalPort, State, OwningProcess\")",
+      "Bash(powershell.exe -NoProfile -NonInteractive -Command \"Get-Process -Id 23656 -ErrorAction SilentlyContinue | Select-Object Id, Name, StartTime\")"
     ]
   }
 }
