@@ -2287,14 +2287,25 @@ FRONTEND RULES:
             await new Promise(r => setTimeout(r, 400));
         }
 
-        // If cwd is provided, navigate first. Resolve absolute if relative
+        // If cwd is provided, navigate first.
         let targetCwd = cwd;
         if (cwd && !String(cwd).includes(':') && !String(cwd).startsWith('/') && window._ideConfig?.projects_dir) {
             const sep = window._ideConfig.os_sep || '/';
-            targetCwd = window._ideConfig.projects_dir + sep + cwd;
+            targetCwd = window._ideConfig.projects_dir + (window._ideConfig.projects_dir.endsWith(sep) ? '' : sep) + cwd;
         }
-        const cleanCwd = targetCwd ? String(targetCwd).replace(/\//g, '\\').replace(/\\\\/g, '\\') : null;
-        const fullCmd = cleanCwd ? `cd /d "${cleanCwd}" && ${cmd}` : cmd;
+
+        const isWin = window._ideConfig?.platform === 'win32';
+        let fullCmd = cmd;
+
+        if (targetCwd) {
+            const cleanCwd = isWin
+                ? String(targetCwd).replace(/\//g, '\\').replace(/\\\\/g, '\\')
+                : String(targetCwd).replace(/\\/g, '/');
+
+            fullCmd = isWin
+                ? `cd /d "${cleanCwd}" && ${cmd}`
+                : `cd "${cleanCwd}" && ${cmd}`;
+        }
 
         // Typing effect
         return new Promise(resolve => {

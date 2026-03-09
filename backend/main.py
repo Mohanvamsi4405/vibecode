@@ -95,7 +95,8 @@ async def get_config():
     """Returns IDE configuration including absolute project paths"""
     return {
         "projects_dir": str(PROJECTS_DIR),
-        "os_sep": os.sep
+        "os_sep": os.sep,
+        "platform": sys.platform
     }
 
 # ── Chat ─────────────────────────────────────────────────────
