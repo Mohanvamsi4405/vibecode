@@ -134,7 +134,7 @@ const UI = {
             'tabs-container', 'preview-frame', 'chat-messages',
             'chat-input', 'preview-url-bar',
             'cursor-pos', 'cursor-pos-bar', 'file-lang',
-            'status-file-count', 'active-crumb', 'btn-toggle-proxy'
+            'status-file-count', 'active-crumb', 'btn-toggle-proxy', 'preview-port-input'
         ];
         ids.forEach(id => { this.els[id] = document.getElementById(id); });
 
@@ -143,6 +143,17 @@ const UI = {
         this.setupCursorTracking();
         this.renderFileTree();
         this.renderTabs();
+        if (this.els['preview-port-input']) {
+            this.els['preview-port-input'].value = Store.state.previewPort || 8000;
+            this.els['preview-port-input'].addEventListener('change', (e) => {
+                let port = parseInt(e.target.value);
+                if (isNaN(port) || port < 1 || port > 65535) port = 8000;
+                Store.state.previewPort = port;
+                e.target.value = port;
+                Store.save();
+                this.updatePreview();
+            });
+        }
         if (Store.state.activeFile) this.loadFile(Store.state.activeFile);
     },
 
@@ -409,7 +420,7 @@ const UI = {
         }
 
         const url = Store.state.previewMode === 'proxy'
-            ? `/proxy/${Store.state.previewPort}/`
+            ? `/proxy/${Store.state.previewPort || 8000}/`
             : `/project/${target}`;
 
         if (this.els['preview-url-bar']) this.els['preview-url-bar'].textContent = url;
@@ -800,11 +811,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (parts.length > 1) {
                     const project = parts[0];
                     const relPath = parts.slice(1).join('/');
-                    _runInShell(`python "${relPath}"`, project);
+                    const content = Store.state.files[af] || '';
+                    if (content.includes('FastAPI') || content.includes('uvicorn')) {
+                        // It's likely a FastAPI app
+                        _runInShell(`uvicorn "${relPath.replace('.py', '').replace(/\//g, '.')}:app" --reload --port 8000`, project);
+                    } else {
+                        _runInShell(`python "${relPath}"`, project);
+                    }
                 } else {
-                    _runInShell(`python "${af}"`);
+                    const content = Store.state.files[af] || '';
+                    if (content.includes('FastAPI') || content.includes('uvicorn')) {
+                        _runInShell(`uvicorn "${af.replace('.py', '').replace(/\//g, '.')}:app" --reload --port 8000`);
+                    } else {
+                        _runInShell(`python "${af}"`);
+                    }
                 }
             } else {
+                // Non-python files: if it's an HTML file and proxy is active, maybe switch back to static?
+                // Or just reload.
                 UI.reloadPreview();
             }
             return;
@@ -2275,15 +2299,28 @@ FRONTEND RULES:
         }
 
         // If command is a server (uvicorn/python app), kill any process on port 8000 first
+        // ALSO: Automatically switch the preview to Proxy mode for this port!
         if (/uvicorn|python\s.*(app|main|run)/.test(cmd)) {
+            const portStr = (cmd.match(/--port\s+(\d+)/) || [])[1] || '8000';
+            const portNum = parseInt(portStr);
+
             try {
-                const port = (cmd.match(/--port\s+(\d+)/) || [])[1] || '8000';
                 await fetch('/api/kill-port', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ port: parseInt(port) })
+                    body: JSON.stringify({ port: portNum })
                 });
             } catch (_) { }
+
+            // AUTOMATION: Switch UI to proxy mode
+            Store.state.previewPort = portNum;
+            Store.state.previewMode = 'proxy';
+            Store.save();
+
+            // Sync UI input
+            if (UI.els['preview-port-input']) UI.els['preview-port-input'].value = portNum;
+            setTimeout(() => UI.updatePreview(), 1000); // Wait for server to start before refreshing
+
             await new Promise(r => setTimeout(r, 400));
         }
 

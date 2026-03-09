@@ -107,6 +107,19 @@ If you're deploying to a standard Linux VPS (like Oracle Free Tier, AWS Free Tie
 
 ---
 
+## 🔌 Previewing Sub-Projects (Port Proxy)
+When running backends like **FastAPI** or **Flask** inside VibeCode on Render, you encounter a "single port" limitation. VibeCode solves this with a built-in Proxy:
+
+1.  **Start your server** in the VibeCode Terminal:
+    ```bash
+    uvicorn main:app --port 8000
+    ```
+2.  **Toggle the Proxy** in the Preview pane (click the 🔌/🖥️ icon).
+3.  **Specify the Port**: Use the `#` input field next to the proxy button to set the internal port (e.g., `8000`).
+4.  VibeCode will now route your preview requests through `https://your-app.onrender.com/proxy/8000/`.
+
+---
+
 ## 📂 Data Persistence
 VibeCode stores your projects in `vibecode_projects/` and chat history in `.vc_history/`.
 - **Docker**: These are mapped to volumes in `docker-compose.yml`.
