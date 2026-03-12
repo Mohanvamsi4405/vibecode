@@ -2292,29 +2292,12 @@ FRONTEND RULES:
         }
 
         // If command is a server (uvicorn/python app), kill any process on port 8000 first
-        // ALSO: Automatically switch the preview to Proxy mode for this port!
+        // Detect uvicorn command — store expected port so _setPortRunning knows which port
         if (/uvicorn|python\s.*(app|main|run)/.test(cmd)) {
             const portStr = (cmd.match(/--port\s+(\d+)/) || [])[1] || '8000';
-            const portNum = parseInt(portStr);
-
-            try {
-                await fetch('/api/kill-port', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ port: portNum })
-                });
-            } catch (_) { }
-
-            // AUTOMATION: Switch UI to proxy mode
-            Store.state.previewPort = portNum;
-            Store.state.previewMode = 'proxy';
-            Store.save();
-
-            // Sync UI input
-            if (UI.els['preview-port-input']) UI.els['preview-port-input'].value = portNum;
-            setTimeout(() => UI.updatePreview(), 1000); // Wait for server to start before refreshing
-
-            await new Promise(r => setTimeout(r, 400));
+            Store.state.previewPort = parseInt(portStr);
+            if (UI.els['preview-port-input']) UI.els['preview-port-input'].value = Store.state.previewPort;
+            await new Promise(r => setTimeout(r, 300));
         }
 
         // If cwd is provided, navigate first.
@@ -2580,17 +2563,22 @@ FRONTEND RULES:
         if (out) out.scrollTop = out.scrollHeight;
     }
 
-    // ── Port 8000 indicator ───────────────────────────────────
+    // ── Port running indicator + proxy preview sync ───────────
     function _setPortRunning(running, port) {
         port = port || Store.state.previewPort || 8000;
-        const btn = document.getElementById('btn-kill-port');
-        if (btn) btn.style.display = running ? 'flex' : 'none';
 
+        // Kill/run button in toolbar
+        const btn = document.getElementById('btn-kill-port');
+        if (btn) {
+            btn.style.display = running ? 'flex' : 'none';
+            const lbl = btn.querySelector('.port-label');
+            if (lbl) lbl.textContent = `:${port}`;
+        }
+
+        // "Open App" external link button
         const openBtn = document.getElementById('btn-open-proxy');
         if (openBtn) {
             if (running) {
-                // Build the URL: if we're on a real host (Render), use proxy route.
-                // If localhost, open directly.
                 const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
                 const url = isLocal
                     ? `http://localhost:${port}/`
@@ -2600,6 +2588,22 @@ FRONTEND RULES:
             } else {
                 openBtn.style.display = 'none';
             }
+        }
+
+        // Sync preview iframe
+        if (running) {
+            // Switch preview panel to proxy mode for this port
+            Store.state.previewPort = port;
+            Store.state.previewMode = 'proxy';
+            Store.save();
+            if (UI.els['preview-port-input']) UI.els['preview-port-input'].value = port;
+            // Give server 1.5s to be ready before loading preview
+            setTimeout(() => UI.updatePreview(), 1500);
+        } else {
+            // Server stopped — switch preview back to static / blank
+            Store.state.previewMode = 'static';
+            Store.save();
+            UI.updatePreview();
         }
     }
 
