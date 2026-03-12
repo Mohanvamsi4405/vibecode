@@ -123,13 +123,19 @@ Generate COMPLETE, WORKING code for ALL files in the plan.
    ✓ @app.get("/api/items")
    ✗ WRONG: @app.get("/items")
 
-5. STATIC LINKS IN HTML — Use /static/ prefix:
-   ✓ <link rel="stylesheet" href="/static/style.css">
-   ✗ WRONG: <link rel="stylesheet" href="static/style.css">
+5. FILE LINKING IN HTML — ALWAYS use relative paths (NO leading slash):
+   ✓ CORRECT: <link rel="stylesheet" href="static/style.css">
+   ✓ CORRECT: <script src="static/script.js"></script>
+   ✗ WRONG:   <link rel="stylesheet" href="/static/style.css">   ← breaks through proxy
+   ✗ WRONG:   <script src="/static/script.js"></script>          ← breaks through proxy
 
-6. FRONTEND FETCH — Always relative paths:
-   ✓ fetch('/api/items')
-   ✗ WRONG: fetch('http://localhost:8000/api/items')
+   WHY: The app runs behind a reverse proxy. Relative paths resolve correctly
+   through any base URL. Absolute paths (starting with /) do not.
+
+6. FRONTEND FETCH — Always use relative API paths (NO leading slash):
+   ✓ CORRECT: fetch('api/items')
+   ✗ WRONG:   fetch('/api/items')        ← breaks through proxy
+   ✗ WRONG:   fetch('http://localhost:8000/api/items')
 
 7. IN-MEMORY STORAGE — Use Python lists/dicts (no SQLite unless asked):
    items = []  # Simple in-memory store
@@ -148,9 +154,35 @@ Generate COMPLETE, WORKING code for ALL files in the plan.
    jinja2
    python-multipart
 
+═══ FILE STRUCTURE RULES ═══
+
+10. STANDARD FASTAPI PROJECT LAYOUT (always follow this):
+    main.py                  ← FastAPI app entry point
+    templates/
+      index.html             ← Main HTML template (Jinja2)
+    static/
+      style.css              ← All CSS styles
+      script.js              ← All frontend JavaScript
+    requirements.txt
+
+11. HTML TEMPLATE HEADER — Every index.html must start like this:
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>App Name</title>
+      <link rel="stylesheet" href="static/style.css">   ← relative, no leading /
+    </head>
+    <body>
+      ...
+      <script src="static/script.js"></script>           ← relative, no leading /
+    </body>
+    </html>
+
 ═══ UI QUALITY RULES ═══
 
-10. MODERN DARK UI:
+12. MODERN DARK UI:
     - Background: #0d1117 or #1a1a2e
     - Cards: #161b22 or #16213e
     - Accent: #2563eb (blue) or #8b5cf6 (purple)
@@ -160,9 +192,9 @@ Generate COMPLETE, WORKING code for ALL files in the plan.
     - Hover transitions: transition: all 0.2s ease
     - Font: system-ui, -apple-system, sans-serif
 
-11. RESPONSIVE: Use CSS Grid or Flexbox. Works on mobile.
+13. RESPONSIVE: Use CSS Grid or Flexbox. Works on mobile.
 
-12. FUNCTIONAL BUTTONS: Every button must have working JavaScript.
+14. FUNCTIONAL BUTTONS: Every button must have working JavaScript.
 
 ═══ OUTPUT FORMAT ═══
 
@@ -177,7 +209,7 @@ Output ONLY this JSON (no markdown fences, no explanation):
     {
       "action": "add_file",
       "file": "templates/index.html",
-      "content": "Complete HTML"
+      "content": "Complete HTML — use relative paths: static/style.css, static/script.js"
     },
     {
       "action": "add_file",
@@ -187,7 +219,7 @@ Output ONLY this JSON (no markdown fences, no explanation):
     {
       "action": "add_file",
       "file": "static/script.js",
-      "content": "Complete JavaScript"
+      "content": "Complete JavaScript — use relative fetch: fetch('api/items')"
     },
     {
       "action": "add_file",
