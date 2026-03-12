@@ -193,10 +193,10 @@ Generate shell commands to set up and run the project.
 RULES:
 1. cwd will already be INSIDE `{project_name}/` — do NOT prepend project name
 2. ALWAYS include --host 0.0.0.0 in uvicorn command so app is reachable through proxy
-3. ALWAYS kill port 8000 first (in case a previous project is running), then install, then start:
-   `fuser -k 8000/tcp 2>/dev/null; pip install -r requirements.txt && uvicorn main:app --reload --host 0.0.0.0 --port 8000`
-   The `fuser -k` kills any existing server on port 8000 before starting the new one.
-   The `2>/dev/null` suppresses errors if nothing was running.
+3. ALWAYS kill any existing uvicorn (reloader + worker) before starting, then install, then start:
+   `pkill -9 -f "uvicorn" 2>/dev/null; pip install -r requirements.txt && uvicorn main:app --reload --host 0.0.0.0 --port 8000`
+   Use pkill (not fuser) — fuser only kills the worker but the reloader respawns it.
+   pkill -9 -f "uvicorn" kills ALL uvicorn processes including the reloader parent.
 4. Mark this combined command with `auto_run: true` and `is_server: true`
 5. Also provide a separate "Restart" button (auto_run: false) for restarting without reinstalling
 
@@ -206,7 +206,7 @@ Output ONLY this JSON (no markdown, no explanation):
     {
       "id": "install_run",
       "label": "Install & Start Server",
-      "command": "fuser -k 8000/tcp 2>/dev/null; pip install -r requirements.txt && uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+      "command": "pkill -9 -f 'uvicorn' 2>/dev/null; pip install -r requirements.txt && uvicorn main:app --reload --host 0.0.0.0 --port 8000",
       "cwd": "ACTUAL_PROJECT_NAME",
       "icon": "🚀",
       "description": "Kill old server, install dependencies, then launch",
@@ -216,7 +216,7 @@ Output ONLY this JSON (no markdown, no explanation):
     {
       "id": "run",
       "label": "Restart Server",
-      "command": "fuser -k 8000/tcp 2>/dev/null; uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+      "command": "pkill -9 -f 'uvicorn' 2>/dev/null; uvicorn main:app --reload --host 0.0.0.0 --port 8000",
       "cwd": "ACTUAL_PROJECT_NAME",
       "icon": "▶️",
       "description": "Kill old server and restart without reinstalling",
@@ -372,8 +372,8 @@ def _kill_port(port: int = 8000) -> list:
             if not killed:
                 killed.append(f"port:{port}")
         else:
-            _sp.run(f"fuser -k {port}/tcp", shell=True, capture_output=True)
-            killed.append(str(port))
+            _sp.run("pkill -9 -f 'uvicorn'", shell=True, capture_output=True)
+            killed.append("uvicorn")
     except Exception as e:
         log.warning(f"kill_port({port}) error: {e}")
     return killed
@@ -554,10 +554,10 @@ def node_terminal(state: AgentState):
             c_cwd = pname
         c["cwd"] = str((pdir / c_cwd).absolute()) if c_cwd else str(pdir.absolute())
 
-        # Safety: ensure every server command kills port 8000 first
+        # Safety: ensure every server command kills existing uvicorn first (reloader + worker)
         cmd_str = c.get("command", "")
-        if c.get("is_server") and "uvicorn" in cmd_str and "fuser" not in cmd_str:
-            c["command"] = f"fuser -k 8000/tcp 2>/dev/null; {cmd_str}"
+        if c.get("is_server") and "uvicorn" in cmd_str and "pkill" not in cmd_str:
+            c["command"] = f"pkill -9 -f 'uvicorn' 2>/dev/null; {cmd_str}"
 
         # Auto-run commands with auto_run: true get sent to shell immediately
         if c.get("auto_run"):

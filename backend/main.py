@@ -290,8 +290,8 @@ async def kill_port(req: KillPortRequest):
                 killed_pids.append(int(wpid))
                 log.info(f"kill-port taskkill /T worker={wpid}")
         else:
-            subprocess.run(f"fuser -k {port}/tcp", shell=True, capture_output=True)
-            killed_pids = [port]
+            subprocess.run("pkill -9 -f 'uvicorn'", shell=True, capture_output=True)
+            killed_pids = ["uvicorn"]
     except Exception as e:
         log.warning(f"kill-port {port}: {e}")
     log.info(f"kill-port {port}: killed {killed_pids}")

@@ -840,11 +840,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (t.closest('#btn-kill-port')) {
             const port = Store.state.previewPort || 8000;
             _termAppend(`\n[Stopping server on port ${port}…]\n`, 'info');
-            // Send kill directly through the shell — more reliable than API on Linux
             const isWin = window._ideConfig?.platform === 'win32';
+            // pkill kills the entire uvicorn process tree (reloader + worker)
+            // fuser only kills the worker — reloader respawns it
             const killCmd = isWin
-                ? `for /f "tokens=5" %p in ('netstat -ano ^| findstr :${port}') do taskkill /F /PID %p`
-                : `fuser -k ${port}/tcp 2>/dev/null && echo "[Server stopped]" || echo "[Nothing was running on :${port}]"`;
+                ? `for /f "tokens=5" %p in ('netstat -ano ^| findstr :${port}') do taskkill /F /T /PID %p`
+                : `pkill -9 -f "uvicorn" 2>/dev/null; fuser -k ${port}/tcp 2>/dev/null; echo "[Server stopped]"`;
             _runInShell(killCmd);
             _setPortRunning(false);
             return;
