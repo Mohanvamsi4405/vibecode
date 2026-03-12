@@ -164,10 +164,32 @@ async def proxy_request(port: int, path: str, request: Request):
                 follow_redirects=True,
                 timeout=30.0
             )
-            
+
             # Extract content-type to handle it specially if needed
             ct = resp.headers.get("content-type", "application/octet-stream")
-            
+
+            # For HTML responses: rewrite absolute asset paths so they go through the proxy.
+            # e.g. /static/style.css → /proxy/8000/static/style.css
+            if "text/html" in ct:
+                body = await resp.aread()
+                html = body.decode("utf-8", errors="replace")
+                base_tag = f'<base href="/proxy/{port}/">'
+                # Inject <base> right after <head> (or at top if no <head>)
+                if "<head>" in html:
+                    html = html.replace("<head>", f"<head>{base_tag}", 1)
+                elif "<HEAD>" in html:
+                    html = html.replace("<HEAD>", f"<HEAD>{base_tag}", 1)
+                else:
+                    html = base_tag + html
+                resp_headers = {k: v for k, v in resp.headers.items()
+                                if k.lower() not in ("content-length", "transfer-encoding")}
+                return StreamingResponse(
+                    iter([html.encode("utf-8")]),
+                    status_code=resp.status_code,
+                    headers=resp_headers,
+                    media_type="text/html"
+                )
+
             return StreamingResponse(
                 resp.aiter_bytes(),
                 status_code=resp.status_code,

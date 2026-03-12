@@ -2588,9 +2588,26 @@ FRONTEND RULES:
     }
 
     // ── Port 8000 indicator ───────────────────────────────────
-    function _setPortRunning(running) {
+    function _setPortRunning(running, port) {
+        port = port || Store.state.previewPort || 8000;
         const btn = document.getElementById('btn-kill-port');
         if (btn) btn.style.display = running ? 'flex' : 'none';
+
+        const openBtn = document.getElementById('btn-open-proxy');
+        if (openBtn) {
+            if (running) {
+                // Build the URL: if we're on a real host (Render), use proxy route.
+                // If localhost, open directly.
+                const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+                const url = isLocal
+                    ? `http://localhost:${port}/`
+                    : `${location.origin}/proxy/${port}/`;
+                openBtn.href = url;
+                openBtn.style.display = 'flex';
+            } else {
+                openBtn.style.display = 'none';
+            }
+        }
     }
 
     function _setTermRunning(alive) {
@@ -2620,7 +2637,10 @@ FRONTEND RULES:
         out.scrollTop = out.scrollHeight;
         // Detect server start/stop from terminal output
         if (text.includes('Uvicorn running on') || text.includes('Application startup complete')) {
-            _setPortRunning(true);
+            // Try to extract port from "Uvicorn running on http://0.0.0.0:8000"
+            const portMatch = text.match(/:(\d{4,5})/);
+            const detectedPort = portMatch ? parseInt(portMatch[1]) : (Store.state.previewPort || 8000);
+            _setPortRunning(true, detectedPort);
         } else if (text.includes('Shutdown complete') || text.includes('Application shutdown') || text.includes('[Shell session ended]') || text.includes('Finished server process')) {
             _setPortRunning(false);
         }
