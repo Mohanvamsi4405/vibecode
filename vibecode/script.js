@@ -838,22 +838,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (t.closest('#btn-close-terminal')) { closeTerminal(); return; }
         if (t.closest('#btn-clear-terminal')) { clearTerminal(); return; }
         if (t.closest('#btn-kill-port')) {
-            const port = 8000;
-            if (confirm(`Kill server on port ${port}?`)) {
-                _termAppend(`\n[Killing port ${port}…]\n`, 'info');
-                fetch('/api/kill-port', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ port })
-                }).then(r => r.json()).then(d => {
-                    if (d.still_running) {
-                        _termAppend(`[Port ${port} still active — try again]\n`, 'err');
-                    } else {
-                        _setPortRunning(false);
-                        _termAppend(`[Port ${port} killed]\n`, 'info');
-                    }
-                }).catch(() => { _termAppend('[Kill request failed]\n', 'err'); });
-            }
+            const port = Store.state.previewPort || 8000;
+            _termAppend(`\n[Stopping server on port ${port}…]\n`, 'info');
+            // Send kill directly through the shell — more reliable than API on Linux
+            const isWin = window._ideConfig?.platform === 'win32';
+            const killCmd = isWin
+                ? `for /f "tokens=5" %p in ('netstat -ano ^| findstr :${port}') do taskkill /F /PID %p`
+                : `fuser -k ${port}/tcp 2>/dev/null && echo "[Server stopped]" || echo "[Nothing was running on :${port}]"`;
+            _runInShell(killCmd);
+            _setPortRunning(false);
             return;
         }
 
