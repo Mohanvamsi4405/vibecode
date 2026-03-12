@@ -193,10 +193,12 @@ Generate shell commands to set up and run the project.
 RULES:
 1. cwd will already be INSIDE `{project_name}/` — do NOT prepend project name
 2. ALWAYS include --host 0.0.0.0 in uvicorn command so app is reachable through proxy
-3. Use a SINGLE chained command for install+run so server only starts after install finishes:
-   `pip install -r requirements.txt && uvicorn main:app --reload --host 0.0.0.0 --port 8000`
+3. ALWAYS kill port 8000 first (in case a previous project is running), then install, then start:
+   `fuser -k 8000/tcp 2>/dev/null; pip install -r requirements.txt && uvicorn main:app --reload --host 0.0.0.0 --port 8000`
+   The `fuser -k` kills any existing server on port 8000 before starting the new one.
+   The `2>/dev/null` suppresses errors if nothing was running.
 4. Mark this combined command with `auto_run: true` and `is_server: true`
-5. Also provide a separate "Run only" button (auto_run: false) for restarting without reinstalling
+5. Also provide a separate "Restart" button (auto_run: false) for restarting without reinstalling
 
 Output ONLY this JSON (no markdown, no explanation):
 {
@@ -204,20 +206,20 @@ Output ONLY this JSON (no markdown, no explanation):
     {
       "id": "install_run",
       "label": "Install & Start Server",
-      "command": "pip install -r requirements.txt && uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+      "command": "fuser -k 8000/tcp 2>/dev/null; pip install -r requirements.txt && uvicorn main:app --reload --host 0.0.0.0 --port 8000",
       "cwd": "ACTUAL_PROJECT_NAME",
       "icon": "🚀",
-      "description": "Install dependencies then launch the web server",
+      "description": "Kill old server, install dependencies, then launch",
       "auto_run": true,
       "is_server": true
     },
     {
       "id": "run",
-      "label": "Start Server",
-      "command": "uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+      "label": "Restart Server",
+      "command": "fuser -k 8000/tcp 2>/dev/null; uvicorn main:app --reload --host 0.0.0.0 --port 8000",
       "cwd": "ACTUAL_PROJECT_NAME",
       "icon": "▶️",
-      "description": "Restart server without reinstalling",
+      "description": "Kill old server and restart without reinstalling",
       "auto_run": false,
       "is_server": true
     }
@@ -551,6 +553,11 @@ def node_terminal(state: AgentState):
         if c_cwd in ("ACTUAL_PROJECT_NAME", "{project_name}", ""):
             c_cwd = pname
         c["cwd"] = str((pdir / c_cwd).absolute()) if c_cwd else str(pdir.absolute())
+
+        # Safety: ensure every server command kills port 8000 first
+        cmd_str = c.get("command", "")
+        if c.get("is_server") and "uvicorn" in cmd_str and "fuser" not in cmd_str:
+            c["command"] = f"fuser -k 8000/tcp 2>/dev/null; {cmd_str}"
 
         # Auto-run commands with auto_run: true get sent to shell immediately
         if c.get("auto_run"):
