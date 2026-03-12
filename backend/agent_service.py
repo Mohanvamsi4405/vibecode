@@ -93,7 +93,7 @@ Output ONLY this JSON (no markdown, no explanation):
     "Step 2: Build responsive HTML UI",
     "Step 3: Write JavaScript for API calls"
   ],
-  "run_command": "uvicorn main:app --reload --port 8000"
+  "run_command": "pip install -r requirements.txt && uvicorn main:app --reload --host 0.0.0.0 --port 8000"
 }"""
 
 # ─── Coder Agent ─────────────────────────────────────────────────────────────
@@ -237,32 +237,33 @@ Generate shell commands to set up and run the project.
 
 RULES:
 1. cwd will already be INSIDE `{project_name}/` — do NOT prepend project name
-2. Install command: `pip install -r requirements.txt`
-3. Run command: `uvicorn main:app --reload --port 8000` (for FastAPI)
-4. Mark the main server command with `auto_run: true`
-5. Install command has `auto_run: false` (user runs manually unless needed)
+2. ALWAYS include --host 0.0.0.0 in uvicorn command so app is reachable through proxy
+3. Use a SINGLE chained command for install+run so server only starts after install finishes:
+   `pip install -r requirements.txt && uvicorn main:app --reload --host 0.0.0.0 --port 8000`
+4. Mark this combined command with `auto_run: true` and `is_server: true`
+5. Also provide a separate "Run only" button (auto_run: false) for restarting without reinstalling
 
 Output ONLY this JSON (no markdown, no explanation):
 {
   "commands": [
     {
-      "id": "install",
-      "label": "Install Dependencies",
-      "command": "pip install -r requirements.txt",
+      "id": "install_run",
+      "label": "Install & Start Server",
+      "command": "pip install -r requirements.txt && uvicorn main:app --reload --host 0.0.0.0 --port 8000",
       "cwd": "ACTUAL_PROJECT_NAME",
-      "icon": "📦",
-      "description": "Install Python packages",
-      "auto_run": false,
-      "is_server": false
+      "icon": "🚀",
+      "description": "Install dependencies then launch the web server",
+      "auto_run": true,
+      "is_server": true
     },
     {
       "id": "run",
       "label": "Start Server",
-      "command": "uvicorn main:app --reload --port 8000",
+      "command": "uvicorn main:app --reload --host 0.0.0.0 --port 8000",
       "cwd": "ACTUAL_PROJECT_NAME",
-      "icon": "🚀",
-      "description": "Launch the web server at http://localhost:8000",
-      "auto_run": true,
+      "icon": "▶️",
+      "description": "Restart server without reinstalling",
+      "auto_run": false,
       "is_server": true
     }
   ]
