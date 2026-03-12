@@ -71,10 +71,20 @@ PLANNER_PROMPT = """You are a Software Architecture Planner.
 Create a minimal, working project plan based on the user's request.
 
 ARCHITECTURE RULES:
-1. FLAT STRUCTURE: Use flat file structure (no api/, utils/, models/ subfolders unless >10 files needed)
-2. FastAPI projects ALWAYS need: main.py, templates/index.html, static/style.css, static/script.js, requirements.txt
-3. Pure web projects need: index.html, style.css, script.js
-4. NEVER use databases unless user explicitly asks for persistence — use Python lists/dicts in memory
+1. Choose project_type carefully:
+   - "fastapi" → user wants a backend, API, server, or data that persists between page loads
+   - "web"     → user wants a pure frontend: landing page, portfolio, game, calculator, UI tool
+                 NO backend needed — just HTML + CSS + JS
+   - "python_script" → command-line tool, data script, no web UI
+
+2. FASTAPI project files (only for fastapi type):
+   main.py, templates/index.html, static/style.css, static/script.js, requirements.txt
+
+3. WEB project files (only for web type) — ALL in root folder, NO subfolders:
+   index.html, style.css, script.js
+   NEVER add requirements.txt or main.py to a web project.
+
+4. NEVER use databases unless user explicitly asks — use Python lists/dicts in memory
 5. Keep it minimal — only files actually needed
 
 Output ONLY this JSON (no markdown, no explanation):
@@ -82,18 +92,16 @@ Output ONLY this JSON (no markdown, no explanation):
   "thinking": "Brief architecture decision",
   "project_type": "fastapi | web | python_script",
   "files": [
-    {"path": "main.py", "purpose": "FastAPI app entry point"},
-    {"path": "templates/index.html", "purpose": "Main UI template"},
-    {"path": "static/style.css", "purpose": "Styles"},
-    {"path": "static/script.js", "purpose": "Frontend logic"},
-    {"path": "requirements.txt", "purpose": "Python dependencies"}
+    {"path": "index.html", "purpose": "Main HTML page"},
+    {"path": "style.css", "purpose": "Styles"},
+    {"path": "script.js", "purpose": "Frontend logic"}
   ],
   "roadmap": [
-    "Step 1: Create FastAPI backend with CRUD routes",
-    "Step 2: Build responsive HTML UI",
-    "Step 3: Write JavaScript for API calls"
+    "Step 1: Build HTML structure",
+    "Step 2: Write CSS styles",
+    "Step 3: Add JavaScript logic"
   ],
-  "run_command": "pip install -r requirements.txt && uvicorn main:app --reload --host 0.0.0.0 --port 8000"
+  "run_command": ""
 }"""
 
 # ─── Coder Agent ─────────────────────────────────────────────────────────────
@@ -101,100 +109,67 @@ Output ONLY this JSON (no markdown, no explanation):
 CODER_PROMPT = """You are an expert Full-Stack Code Generation Agent.
 Generate COMPLETE, WORKING code for ALL files in the plan.
 
-═══ CRITICAL FASTAPI RULES (MUST FOLLOW) ═══
+═══ PROJECT TYPE RULES ═══
 
-1. DIRECTORY NAMES — ALWAYS USE BARE NAMES:
-   ✓ CORRECT: Jinja2Templates(directory="templates")
-   ✗ WRONG:   Jinja2Templates(directory="{project_name}/templates")
-   ✓ CORRECT: StaticFiles(directory="static")
-   ✗ WRONG:   StaticFiles(directory="{project_name}/static")
+The plan specifies a project_type. Follow the rules for that type EXACTLY.
 
-2. ROUTE ORDER — Routes BEFORE mounts:
-   ✓ app.get("/")                          ← define route first
-   ✓ app.mount("/static", StaticFiles...)  ← mount AFTER routes
-   ✗ WRONG: mount first, then define routes
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TYPE: web  (pure frontend — NO backend)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Files: index.html, style.css, script.js  — ALL in root folder
+NEVER create: main.py, requirements.txt, templates/, static/
 
-3. MANDATORY ROOT ROUTE — ALWAYS include:
+HTML linking (index.html):
+  ✓ <link rel="stylesheet" href="style.css">    ← same folder, no subfolder
+  ✓ <script src="script.js"></script>            ← same folder, no subfolder
+  ✗ WRONG: href="/style.css" or href="static/style.css"
+
+JavaScript: no fetch() needed — all logic is in-browser.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TYPE: fastapi  (backend + frontend)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Files: main.py, templates/index.html, static/style.css, static/script.js, requirements.txt
+
+1. DIRECTORY NAMES — bare names only:
+   ✓ Jinja2Templates(directory="templates")
+   ✓ StaticFiles(directory="static")
+
+2. ROUTE ORDER — routes BEFORE mounts:
+   @app.get("/")  ... define first
+   app.mount("/static", StaticFiles...)  ← mount last
+
+3. MANDATORY ROOT ROUTE:
    @app.get("/")
    async def root(request: Request):
        return templates.TemplateResponse("index.html", {{"request": request}})
 
-4. API PREFIX — Backend routes use /api/ prefix:
-   ✓ @app.get("/api/items")
-   ✗ WRONG: @app.get("/items")
+4. API PREFIX: @app.get("/api/items")  not  @app.get("/items")
 
-5. FILE LINKING IN HTML — ALWAYS use relative paths (NO leading slash):
-   ✓ CORRECT: <link rel="stylesheet" href="static/style.css">
-   ✓ CORRECT: <script src="static/script.js"></script>
-   ✗ WRONG:   <link rel="stylesheet" href="/static/style.css">   ← breaks through proxy
-   ✗ WRONG:   <script src="/static/script.js"></script>          ← breaks through proxy
+5. HTML linking in templates/index.html — relative paths, NO leading slash:
+   ✓ <link rel="stylesheet" href="static/style.css">
+   ✓ <script src="static/script.js"></script>
+   ✗ WRONG: href="/static/style.css"  ← breaks through proxy
 
-   WHY: The app runs behind a reverse proxy. Relative paths resolve correctly
-   through any base URL. Absolute paths (starting with /) do not.
+6. fetch() calls — relative, NO leading slash:
+   ✓ fetch('api/items')
+   ✗ WRONG: fetch('/api/items')  ← breaks through proxy
 
-6. FRONTEND FETCH — Always use relative API paths (NO leading slash):
-   ✓ CORRECT: fetch('api/items')
-   ✗ WRONG:   fetch('/api/items')        ← breaks through proxy
-   ✗ WRONG:   fetch('http://localhost:8000/api/items')
+7. IN-MEMORY STORAGE — Python lists/dicts, no SQLite unless asked
 
-7. IN-MEMORY STORAGE — Use Python lists/dicts (no SQLite unless asked):
-   items = []  # Simple in-memory store
-   @app.post("/api/items")
-   async def add_item(item: ItemModel):
-       items.append(item.dict())
-       return item
-
-8. PYTHON PATHS — Use Path(__file__).parent for file operations:
-   BASE_DIR = Path(__file__).parent
-   UPLOAD_DIR = BASE_DIR / "uploads"
-
-9. requirements.txt MUST include:
+8. requirements.txt must include:
    fastapi
    uvicorn[standard]
    jinja2
    python-multipart
 
-═══ FILE STRUCTURE RULES ═══
+═══ UI QUALITY RULES (both types) ═══
 
-10. STANDARD FASTAPI PROJECT LAYOUT (always follow this):
-    main.py                  ← FastAPI app entry point
-    templates/
-      index.html             ← Main HTML template (Jinja2)
-    static/
-      style.css              ← All CSS styles
-      script.js              ← All frontend JavaScript
-    requirements.txt
-
-11. HTML TEMPLATE HEADER — Every index.html must start like this:
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>App Name</title>
-      <link rel="stylesheet" href="static/style.css">   ← relative, no leading /
-    </head>
-    <body>
-      ...
-      <script src="static/script.js"></script>           ← relative, no leading /
-    </body>
-    </html>
-
-═══ UI QUALITY RULES ═══
-
-12. MODERN DARK UI:
-    - Background: #0d1117 or #1a1a2e
-    - Cards: #161b22 or #16213e
-    - Accent: #2563eb (blue) or #8b5cf6 (purple)
-    - Text: #e6edf3
-    - Rounded corners: border-radius: 12px
-    - Shadows: box-shadow: 0 4px 20px rgba(0,0,0,0.3)
-    - Hover transitions: transition: all 0.2s ease
-    - Font: system-ui, -apple-system, sans-serif
-
-13. RESPONSIVE: Use CSS Grid or Flexbox. Works on mobile.
-
-14. FUNCTIONAL BUTTONS: Every button must have working JavaScript.
+- Modern dark UI: background #0d1117, cards #161b22, accent #2563eb or #8b5cf6
+- Text: #e6edf3, border-radius: 12px, box-shadow: 0 4px 20px rgba(0,0,0,0.3)
+- Transitions: all 0.2s ease, font: system-ui, -apple-system, sans-serif
+- Responsive: CSS Grid or Flexbox, works on mobile
+- Every button must have working JavaScript
 
 ═══ OUTPUT FORMAT ═══
 
@@ -203,28 +178,8 @@ Output ONLY this JSON (no markdown fences, no explanation):
   "actions": [
     {
       "action": "add_file",
-      "file": "main.py",
-      "content": "COMPLETE file content here — no placeholders, no TODOs"
-    },
-    {
-      "action": "add_file",
-      "file": "templates/index.html",
-      "content": "Complete HTML — use relative paths: static/style.css, static/script.js"
-    },
-    {
-      "action": "add_file",
-      "file": "static/style.css",
-      "content": "Complete CSS"
-    },
-    {
-      "action": "add_file",
-      "file": "static/script.js",
-      "content": "Complete JavaScript — use relative fetch: fetch('api/items')"
-    },
-    {
-      "action": "add_file",
-      "file": "requirements.txt",
-      "content": "fastapi\\nuvicorn[standard]\\njinja2\\npython-multipart"
+      "file": "path/to/file",
+      "content": "COMPLETE file content — no placeholders, no TODOs"
     }
   ],
   "message": "Created a working [project description]."
@@ -634,11 +589,10 @@ def route_intent(state: AgentState) -> str:
 
 def route_after_coder(state: AgentState) -> str:
     """Decide whether to run terminal after coder."""
-    intent = state.get("intent_data", {}).get("requires_terminal", True)
     plan = state.get("roadmap_data", {})
     proj_type = plan.get("project_type", "fastapi")
-    # Always run terminal for FastAPI projects; skip for pure web
-    if proj_type == "web" and not intent:
+    # Pure web projects need no server — skip terminal entirely
+    if proj_type == "web":
         return "end"
     return "terminal"
 
