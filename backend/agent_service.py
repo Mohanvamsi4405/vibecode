@@ -142,7 +142,7 @@ Files: main.py, templates/index.html, static/style.css, static/script.js, requir
 3. MANDATORY ROOT ROUTE:
    @app.get("/")
    async def root(request: Request):
-       return templates.TemplateResponse("index.html", {{"request": request}})
+       return templates.TemplateResponse(request, "index.html", {{"request": request}})
 
 4. API PREFIX: @app.get("/api/items")  not  @app.get("/items")
 
